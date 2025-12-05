@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Login | Let's Yap</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body class="login-body">
+  <div class="login-container">
+    <h1 class="app-title">Let's Yap</h1>
+    <p class="login-subtitle">Sign in to start chatting</p>
+
+    <div class="login-card">
+      <label class="input-label">Display name</label>
+      <input id="nameInput" type="text" placeholder="Enter your name" />
+
+      <label class="input-label">Choose a room</label>
+      <select id="roomSelect">
+        <option value="General">General</option>
+        <option value="Friends">Friends</option>
+        <option value="Work">Work</option>
+      </select>
+
+      <button id="guestBtn" class="login_primary-btn">
+        Continue without Google
+      </button>
+
+      <div class="divider">
+        <span>or</span>
+      </div>
+
+      <button id="googleBtn" class="btn google-btn">
+        Continue with Google
+      </button>
+    </div>
+  </div>
+
+  <!-- Firebase -->
+  <script src="https://www.gstatic.com/firebasejs/9.6.11/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.11/firebase-auth-compat.js"></script>
+
+  <script src="login.js"></script>
+</body>
+</html>

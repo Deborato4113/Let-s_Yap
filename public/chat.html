@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Chatroom | Let's Yap</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="chat-layout">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-title">Let's Yap</div>
+        <button id="logoutBtn" class="btn small-btn">Logout</button>
+      </div>
+
+      <div class="profile-section">
+        <img id="userAvatar" class="avatar" />
+        <div>
+          <div id="userName" class="username"></div>
+          <div id="userRoom" class="user-room"></div>
+        </div>
+      </div>
+
+      <div class="section-title">Online</div>
+      <ul id="userList" class="user-list"></ul>
+
+      <div class="section-title">Background</div>
+      <div class="bg-picker">
+        <button class="bg-dot" data-bg="#e5ddd5"></button>
+        <button class="bg-dot" data-bg="#ffffff"></button>
+        <button class="bg-dot" data-bg="#f0f4ff"></button>
+        <button class="bg-dot" data-bg="#fbe9e7"></button>
+      </div>
+    </aside>
+
+    <!-- Chat column -->
+    <main class="chat-container">
+      <header class="header">
+        <div class="header-left">
+          <div id="roomTitle" class="room-title">Chatroom</div>
+        </div>
+        <button class="btn small-btn" id="exitBtn">Exit</button>
+      </header>
+
+      <div id="messages" class="messages"></div>
+
+      <div id="typingIndicator" class="typing-indicator"></div>
+
+      <footer class="input-area">
+        <label class="file-label">
+          📎
+          <input type="file" id="fileInput" hidden />
+        </label>
+        <input
+          id="messageInput"
+          type="text"
+          placeholder="Type a message..."
+          autocomplete="off"
+        />
+       <button id="sendBtn" class="send-arrow-btn">
+    <svg viewBox="0 0 24 24" class="send-icon">
+        <path d="M2 21L23 12L2 3L2 10L17 12L2 14L2 21Z"/>
+    </svg>
+</button>
+
+      </footer>
+    </main>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
