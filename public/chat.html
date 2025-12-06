@@ -4,9 +4,15 @@
   <meta charset="UTF-8" />
   <title>Chatroom | Let's Yap</title>
   <link rel="stylesheet" href="style.css" />
+
+  <!-- EmojiMart CSS -->
+  <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/emoji-mart@latest/css/emoji-mart.css" />
 </head>
+
 <body>
   <div class="chat-layout">
+
     <!-- Sidebar -->
     <aside class="sidebar">
       <div class="sidebar-header">
@@ -37,9 +43,7 @@
     <!-- Chat column -->
     <main class="chat-container">
       <header class="header">
-        <div class="header-left">
-          <div id="roomTitle" class="room-title">Chatroom</div>
-        </div>
+        <div id="roomTitle" class="room-title"></div>
         <button class="btn small-btn" id="exitBtn">Exit</button>
       </header>
 
@@ -47,13 +51,21 @@
 
       <div id="typingIndicator" class="typing-indicator"></div>
 
-           <footer class="input-area">
-        <label class="file-label">
-          📎
+      <!-- Reply bar -->
+      <div id="replyPreview" class="reply-preview hidden">
+        <div class="reply-preview-text">
+          <div id="replyUser" class="reply-user"></div>
+          <div id="replyText" class="reply-text"></div>
+        </div>
+        <button id="replyCancel" class="reply-cancel">✕</button>
+      </div>
+
+      <!-- Input area -->
+      <footer class="input-area">
+        <label class="file-label">📎
           <input type="file" id="fileInput" hidden />
         </label>
 
-        <!-- Emoji button -->
         <button id="emojiBtn" class="emoji-btn">😊</button>
 
         <input
@@ -65,33 +77,19 @@
 
         <button id="sendBtn" class="send-arrow-btn">
           <svg viewBox="0 0 24 24" class="send-icon">
-            <path d="M2 21L23 12L2 3L2 10L17 12L2 14L2 21Z" />
+            <path d="M2 21L23 12L2 3L2 10L17 12L2 14L2 21Z"/>
           </svg>
         </button>
       </footer>
-
-      <!-- Reply preview bar (above footer) -->
-      <div id="replyPreview" class="reply-preview hidden">
-        <div class="reply-preview-text">
-          <div id="replyUser" class="reply-user"></div>
-          <div id="replyText" class="reply-text"></div>
-        </div>
-        <button id="replyCancel" class="reply-cancel">✕</button>
-      </div>
 
     </main>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
-  <script src="script.js"></script>
 
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/emoji-mart@latest/css/emoji-mart.css" />
   <script src="https://cdn.jsdelivr.net/npm/emoji-mart@latest/dist/browser.js"></script>
 
-  <script src="/socket.io/socket.io.js"></script>
   <script src="script.js"></script>
-</body>
-</html>
 
 </body>
 </html>
