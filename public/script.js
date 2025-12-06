@@ -2,11 +2,10 @@ document.addEventListener("DOMContentLoaded", () => {
   console.log("SCRIPT LOADED!");
 
   // ===== Socket connection =====
-  // since your app is served from let-s-yap.onrender.com, this is fine:
   const socket = io("https://let-s-yap.onrender.com", {
     transports: ["websocket", "polling"],
   });
-  // (you could also just use: const socket = io();)
+  // (Locally you could also just use: const socket = io();)
 
   // ===== DOM elements =====
   const messagesEl = document.getElementById("messages");
@@ -22,6 +21,13 @@ document.addEventListener("DOMContentLoaded", () => {
   const userAvatarEl = document.getElementById("userAvatar");
   const roomTitleEl = document.getElementById("roomTitle");
   const bgButtons = document.querySelectorAll(".bg-dot");
+
+  // NEW: emoji + reply elements
+  const emojiBtn = document.getElementById("emojiBtn");
+  const replyPreviewEl = document.getElementById("replyPreview");
+  const replyUserEl = document.getElementById("replyUser");
+  const replyTextEl = document.getElementById("replyText");
+  const replyCancelBtn = document.getElementById("replyCancel");
 
   // ===== User & room from localStorage =====
   const stored = localStorage.getItem("chatUser");
@@ -68,6 +74,75 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // track my own messages by id for read receipts
   const myMessages = new Map(); // id -> element
+
+  // ===== Reply state/helpers =====
+  let replyTo = null; // { id, text, user }
+
+  function setReply(data) {
+    replyTo = {
+      id: data.id,
+      text: data.text,
+      user: data.user,
+    };
+    if (replyUserEl && replyTextEl && replyPreviewEl) {
+      replyUserEl.textContent = data.user || "Unknown";
+      replyTextEl.textContent = data.text || "";
+      replyPreviewEl.classList.remove("hidden");
+    }
+  }
+
+  function clearReply() {
+    replyTo = null;
+    if (replyUserEl && replyTextEl && replyPreviewEl) {
+      replyUserEl.textContent = "";
+      replyTextEl.textContent = "";
+      replyPreviewEl.classList.add("hidden");
+    }
+  }
+
+  if (replyCancelBtn) {
+    replyCancelBtn.addEventListener("click", clearReply);
+  }
+
+  // ===== Emoji picker (EmojiMart) =====
+  if (emojiBtn && window.EmojiMart) {
+    let pickerVisible = false;
+
+    const pickerContainer = document.createElement("div");
+    pickerContainer.id = "emojiPickerContainer";
+    pickerContainer.style.position = "absolute";
+    pickerContainer.style.bottom = "80px";
+    pickerContainer.style.left = "280px";
+    pickerContainer.style.zIndex = "2000";
+    pickerContainer.style.display = "none";
+    document.body.appendChild(pickerContainer);
+
+    const picker = new EmojiMart.Picker({
+      onEmojiSelect: (emoji) => {
+        inputEl.value += emoji.native;
+        inputEl.focus();
+      },
+      theme: "light",
+    });
+    pickerContainer.appendChild(picker);
+
+    emojiBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      pickerVisible = !pickerVisible;
+      pickerContainer.style.display = pickerVisible ? "block" : "none";
+    });
+
+    // hide picker when clicking outside
+    document.addEventListener("click", (e) => {
+      if (
+        !pickerContainer.contains(e.target) &&
+        e.target !== emojiBtn
+      ) {
+        pickerVisible = false;
+        pickerContainer.style.display = "none";
+      }
+    });
+  }
 
   // ===== Socket events =====
 
@@ -159,16 +234,29 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (!text && !file) return;
 
-    const id = Date.now().toString() + Math.random().toString(36).slice(2);
+    const id =
+      Date.now().toString() + Math.random().toString(36).slice(2);
+
+    // base payload
+    const basePayload = {
+      id,
+      type: file ? "file" : "text",
+      text,
+    };
+
+    // attach reply info if present
+    if (replyTo) {
+      basePayload.replyToId = replyTo.id;
+      basePayload.replyToText = replyTo.text;
+      basePayload.replyToUser = replyTo.user;
+    }
 
     if (file) {
       const reader = new FileReader();
       reader.onload = () => {
         const fileData = reader.result;
         socket.emit("chat-message", {
-          id,
-          type: "file",
-          text, // optional caption
+          ...basePayload,
           fileName: file.name,
           fileType: file.type,
           fileData,
@@ -176,15 +264,12 @@ document.addEventListener("DOMContentLoaded", () => {
       };
       reader.readAsDataURL(file);
     } else {
-      socket.emit("chat-message", {
-        id,
-        type: "text",
-        text,
-      });
+      socket.emit("chat-message", basePayload);
     }
 
     inputEl.value = "";
     fileInput.value = "";
+    clearReply();
   }
 
   // ===== Render functions =====
@@ -201,11 +286,22 @@ document.addEventListener("DOMContentLoaded", () => {
     div.className = "message " + (isMe ? "me" : "other");
     div.dataset.id = data.id;
 
-    // --- sender name on top (NEW) ---
+    // --- sender name on top ---
     const nameDiv = document.createElement("div");
     nameDiv.className = "msg-sender";
-    nameDiv.textContent = data.user || (isMe ? currentUserName : "Unknown");
+    nameDiv.textContent =
+      data.user || (isMe ? currentUserName : "Unknown");
     div.appendChild(nameDiv);
+
+    // --- quoted reply box if exists ---
+    if (data.replyToText) {
+      const replyBox = document.createElement("div");
+      replyBox.className = "reply-box";
+      replyBox.textContent = `${data.replyToUser || "Unknown"}: ${
+        data.replyToText
+      }`;
+      div.appendChild(replyBox);
+    }
 
     const textSpan = document.createElement("span");
     textSpan.className = "message-text";
@@ -254,7 +350,10 @@ document.addEventListener("DOMContentLoaded", () => {
       div.addEventListener("dblclick", () => {
         const newText = prompt("Edit your message:", data.text);
         if (newText && newText.trim()) {
-          socket.emit("edit-message", { id: data.id, newText: newText.trim() });
+          socket.emit("edit-message", {
+            id: data.id,
+            newText: newText.trim(),
+          });
         }
       });
 
@@ -263,6 +362,11 @@ document.addEventListener("DOMContentLoaded", () => {
         if (confirm("Delete this message?")) {
           socket.emit("delete-message", { id: data.id });
         }
+      });
+    } else {
+      // reply to others' messages on double-click
+      div.addEventListener("dblclick", () => {
+        setReply(data);
       });
     }
 

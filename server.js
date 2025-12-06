@@ -59,6 +59,7 @@ io.on("connection", (socket) => {
   // =============================
 
   // text / file message
+   // text / file message
   socket.on("chat-message", (msg) => {
     const u = users.get(socket.id);
     if (!u) return;
@@ -70,14 +71,20 @@ io.on("connection", (socket) => {
       fileName: msg.fileName || null,
       fileData: msg.fileData || null,
       fileType: msg.fileType || null,
-      user: u.name,        // Sender Name
-      senderId: socket.id, // Needed for seen-message
+      user: u.name,
+      senderId: socket.id,
       room: u.room,
       timestamp: Date.now(),
+
+      // NEW: reply metadata
+      replyToId: msg.replyToId || null,
+      replyToText: msg.replyToText || null,
+      replyToUser: msg.replyToUser || null,
     };
 
     io.to(u.room).emit("message", message);
   });
+
 
   // typing indicator
   socket.on("typing", (isTyping) => {

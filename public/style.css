@@ -375,3 +375,65 @@ select {
   color: #555;
   margin-bottom: 2px;
 }
+
+
+.emoji-btn {
+  background: none;
+  border: none;
+  font-size: 1.6rem;
+  cursor: pointer;
+}
+
+/* Reply preview bar above input */
+.reply-preview {
+  position: absolute;
+  left: 260px;          /* same as sidebar width */
+  right: 0;
+  bottom: 72px;         /* just above input-area height */
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: #f0f0f0;
+  border-top: 1px solid #ccc;
+  border-bottom: 1px solid #ccc;
+  font-size: 0.9rem;
+}
+
+.reply-preview.hidden {
+  display: none;
+}
+
+.reply-preview-text {
+  overflow: hidden;
+}
+
+.reply-user {
+  font-weight: bold;
+  color: #075e54;
+}
+
+.reply-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 350px;
+}
+
+.reply-cancel {
+  background: none;
+  border: none;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+/* Reply box inside each message bubble */
+.reply-box {
+  font-size: 0.75rem;
+  padding: 4px 8px;
+  border-left: 3px solid #128C7E;
+  background: rgba(0, 0, 0, 0.03);
+  margin-bottom: 4px;
+  border-radius: 4px;
+  color: #444;
+}
