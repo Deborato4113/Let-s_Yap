@@ -2,7 +2,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
 console.log("SCRIPT LOADED!");
  
-const socket = io();
+const socket = io("https://let-s-yap.onrender.com", {
+  transports: ["websocket", "polling"],
+});
+
+
+const io = new Server(http, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
+
 
 const messagesEl = document.getElementById("messages");
 const sendBtn = document.getElementById("sendBtn");
@@ -62,11 +73,25 @@ function formatTime(ts) {
 const myMessages = new Map(); // id -> element
 
 // ===== Socket events =====
-socket.on("message", (data) => {
-  if (data.type === "system") {
-    addSystemMessage(data.text);
-    return;
-  }
+socket.on("message", (msg) => {
+    const div = document.createElement("div");
+
+    const isMine = (msg.user === currentUserName);
+
+    div.classList.add(isMine ? "my-message" : "other-message");
+
+    div.innerHTML = `
+        <div class="msg-sender">${msg.user}</div>
+        <div class="msg-bubble">
+            <span class="msg-text">${msg.text}</span>
+            <span class="msg-time">${msg.time}</span>
+        </div>
+    `;
+
+    messages.appendChild(div);
+    messages.scrollTop = messages.scrollHeight;
+});
+
 
   const isMe = data.senderId === socket.id;
   addChatMessage(data, isMe);
@@ -260,4 +285,14 @@ logoutBtn.onclick = () => {
 exitBtn.onclick = () => {
   window.location.href = "/";
 };
+});
+
+
+
+sendBtn.addEventListener("click", () => {
+    const text = messageInput.value.trim();
+    if (text) {
+        socket.emit("send-message", text);
+        messageInput.value = "";
+    }
 });

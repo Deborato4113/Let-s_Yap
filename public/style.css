@@ -322,8 +322,6 @@ select {
     fill: white;
 }
 
-
-
 /* File content inside message */
 .message img {
   max-width: 180px;
@@ -333,4 +331,40 @@ select {
 }
 .file-link {
   font-size: 0.85rem;
+}
+
+
+.my-message, .other-message {
+    margin: 10px 12px;
+}
+
+.msg-sender {
+    font-size: 12px;
+    margin-bottom: 2px;
+    color: #555;
+}
+
+.my-message {
+    text-align: right;
+}
+
+.my-message .msg-bubble {
+    background: #DCF8C6;
+}
+
+.other-message .msg-bubble {
+    background: white;
+}
+
+.msg-bubble {
+    padding: 10px 14px;
+    border-radius: 15px;
+    display: inline-block;
+    max-width: 65%;
+}
+
+.msg-time {
+    font-size: 10px;
+    margin-left: 8px;
+    color: #777;
 }

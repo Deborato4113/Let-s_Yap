@@ -2,7 +2,12 @@ const express = require("express");
 const app = express();
 const http = require("http").createServer(app);
 const { Server } = require("socket.io");
-const io = new Server(http);
+const io = new Server(http, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
 
 // Serve static files from public directory
 app.use(express.static(__dirname + "/public"));
@@ -46,6 +51,21 @@ io.on("connection", (socket) => {
     // send updated user list
     sendRoomUsers(room);
   });
+
+
+
+  socket.on("send-message", (text) => {
+    const user = users.get(socket.id);
+
+    if (!user) return;
+
+    io.to(user.room).emit("message", {
+        user: user.name,
+        text: text,
+        time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    });
+});
+
 
   // text / file message
   socket.on("chat-message", (msg) => {
@@ -131,3 +151,5 @@ const PORT = process.env.PORT || 3000;
 http.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}`);
 });
+
+
