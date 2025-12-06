@@ -48,6 +48,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const currentUserName = user.name;
 
+  socket.on("chat-history", (messages) => {
+  messages.forEach(m => {
+    const isMe = (m.senderId === socket.id);
+    addChatMessage(m, isMe);
+  });
+});
+
+
   // join room on connect
   socket.emit("join-room", { name: user.name, room: user.room });
 
@@ -397,9 +405,3 @@ document.addEventListener("DOMContentLoaded", () => {
 
 
 
-socket.on("chat-history", (messages) => {
-  messages.forEach(m => {
-    const isMe = (m.senderId === socket.id);
-    addChatMessage(m, isMe);
-  });
-});
