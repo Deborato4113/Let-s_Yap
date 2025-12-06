@@ -52,20 +52,11 @@ io.on("connection", (socket) => {
     sendRoomUsers(room);
   });
 
-
-
-  socket.on("send-message", (text) => {
-    const user = users.get(socket.id);
-
-    if (!user) return;
-
-    io.to(user.room).emit("message", {
-        user: user.name,
-        text: text,
-        time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-    });
-});
-
+  // REMOVE OLD send-message (your client does not use this!)
+  // =============================
+  // socket.on("send-message", ... )
+  // DELETE THIS BLOCK
+  // =============================
 
   // text / file message
   socket.on("chat-message", (msg) => {
@@ -79,8 +70,8 @@ io.on("connection", (socket) => {
       fileName: msg.fileName || null,
       fileData: msg.fileData || null,
       fileType: msg.fileType || null,
-      user: u.name,
-      senderId: socket.id,
+      user: u.name,        // Sender Name
+      senderId: socket.id, // Needed for seen-message
       room: u.room,
       timestamp: Date.now(),
     };
@@ -151,5 +142,3 @@ const PORT = process.env.PORT || 3000;
 http.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}`);
 });
-
-
