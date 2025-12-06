@@ -5,7 +5,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const socket = io("https://let-s-yap.onrender.com", {
     transports: ["websocket", "polling"],
   });
-  // (Locally you could also just use: const socket = io();)
+  // (Locally you could just use: const socket = io();)
 
   // ===== DOM elements =====
   const messagesEl = document.getElementById("messages");
@@ -22,7 +22,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const roomTitleEl = document.getElementById("roomTitle");
   const bgButtons = document.querySelectorAll(".bg-dot");
 
-  // NEW: emoji + reply elements
+  // Emoji + reply elements
   const emojiBtn = document.getElementById("emojiBtn");
   const replyPreviewEl = document.getElementById("replyPreview");
   const replyUserEl = document.getElementById("replyUser");
@@ -134,10 +134,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // hide picker when clicking outside
     document.addEventListener("click", (e) => {
-      if (
-        !pickerContainer.contains(e.target) &&
-        e.target !== emojiBtn
-      ) {
+      if (!pickerContainer.contains(e.target) && e.target !== emojiBtn) {
         pickerVisible = false;
         pickerContainer.style.display = "none";
       }
@@ -228,6 +225,13 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  // auto-send when a file is chosen (WhatsApp-like)
+  fileInput.addEventListener("change", () => {
+    if (fileInput.files && fileInput.files.length > 0) {
+      sendMessage();
+    }
+  });
+
   function sendMessage() {
     const text = inputEl.value.trim();
     const file = fileInput.files[0];
@@ -251,6 +255,7 @@ document.addEventListener("DOMContentLoaded", () => {
       basePayload.replyToUser = replyTo.user;
     }
 
+    // ---- FILE MESSAGE ----
     if (file) {
       const reader = new FileReader();
       reader.onload = () => {
@@ -260,15 +265,21 @@ document.addEventListener("DOMContentLoaded", () => {
           fileName: file.name,
           fileType: file.type,
           fileData,
+          text: text || "", // caption or empty
         });
+
+        fileInput.value = "";
+        inputEl.value = "";
+        clearReply();
       };
       reader.readAsDataURL(file);
-    } else {
-      socket.emit("chat-message", basePayload);
+      return; // important: don't send text-only after this
     }
 
+    // ---- TEXT MESSAGE ----
+    socket.emit("chat-message", basePayload);
+
     inputEl.value = "";
-    fileInput.value = "";
     clearReply();
   }
 
@@ -382,4 +393,13 @@ document.addEventListener("DOMContentLoaded", () => {
   exitBtn.onclick = () => {
     window.location.href = "/";
   };
+});
+
+
+
+socket.on("chat-history", (messages) => {
+  messages.forEach(m => {
+    const isMe = (m.senderId === socket.id);
+    addChatMessage(m, isMe);
+  });
 });
