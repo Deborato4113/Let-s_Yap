@@ -49,13 +49,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const currentUserName = user.name;
 
+  // ===== Chat history =====
   socket.on("chat-history", (messages) => {
-  messages.forEach(m => {
-    const isMe = (m.senderId === socket.id);
-    addChatMessage(m, isMe);
+    messages.forEach((m) => {
+      const isMe = m.senderId === socket.id;
+      addChatMessage(m, isMe);
+    });
   });
-});
-
 
   // join room on connect
   socket.emit("join-room", { name: user.name, room: user.room });
@@ -160,7 +160,6 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    // normal chat messages (text / file)
     const isMe = data.senderId === socket.id;
     addChatMessage(data, isMe);
 
@@ -217,12 +216,41 @@ document.addEventListener("DOMContentLoaded", () => {
     if (textSpan) textSpan.textContent = newText + " (edited)";
   });
 
-  // message deleted
+  // delete for everyone
   socket.on("message-deleted", ({ id }) => {
     const el = document.querySelector(`.message[data-id="${id}"]`);
     if (!el) return;
     el.textContent = "This message was deleted";
     el.classList.add("system");
+  });
+
+  // delete for me only
+  socket.on("message-deleted-me", ({ id }) => {
+    const el = document.querySelector(`.message[data-id="${id}"]`);
+    if (!el) return;
+    el.remove();
+  });
+
+  // reactions updated
+  socket.on("message-reacted", ({ id, reactions }) => {
+    const el = document.querySelector(`.message[data-id="${id}"]`);
+    if (!el) return;
+    const bar = el.querySelector(".reaction-bar");
+    if (!bar) return;
+
+    bar.innerHTML = "";
+    const entries = Object.entries(reactions || {});
+    if (!entries.length) {
+      bar.style.display = "none";
+      return;
+    }
+    entries.forEach(([userName, emoji]) => {
+      const span = document.createElement("span");
+      span.textContent = emoji;
+      span.title = userName;
+      bar.appendChild(span);
+    });
+    bar.style.display = "inline-flex";
   });
 
   // ===== Sending messages =====
@@ -355,6 +383,15 @@ document.addEventListener("DOMContentLoaded", () => {
     timeSpan.className = "time-label";
     timeSpan.textContent = formatTime(data.timestamp || Date.now());
 
+    // small reaction button near time
+    const reactBtn = document.createElement("span");
+    reactBtn.className = "reaction-btn";
+    reactBtn.textContent = "😊";
+    reactBtn.style.marginLeft = "6px";
+    reactBtn.style.cursor = "pointer";
+    reactBtn.title = "React";
+    timeSpan.appendChild(reactBtn);
+
     if (isMe) {
       const tickSpan = document.createElement("span");
       tickSpan.className = "tick";
@@ -364,6 +401,38 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     div.appendChild(timeSpan);
+
+    // Reaction bar under message
+    const reactionBar = document.createElement("div");
+    reactionBar.className = "reaction-bar";
+    reactionBar.style.display = "none";
+    reactionBar.style.marginTop = "4px";
+    div.appendChild(reactionBar);
+
+    // if there are existing reactions (from history)
+    if (data.reactions) {
+      const entries = Object.entries(data.reactions);
+      if (entries.length) {
+        entries.forEach(([userName, emoji]) => {
+          const span = document.createElement("span");
+          span.textContent = emoji;
+          span.title = userName;
+          reactionBar.appendChild(span);
+        });
+        reactionBar.style.display = "inline-flex";
+      }
+    }
+
+    // simple reaction UI: prompt emoji on click
+    reactBtn.addEventListener("click", () => {
+      const emoji = prompt("React with emoji (e.g. ❤️ 😂 👍):");
+      if (!emoji) return;
+      socket.emit("react-message", {
+        id: data.id,
+        emoji,
+        user: currentUserName,
+      });
+    });
 
     // edit/delete for my messages
     if (isMe) {
@@ -379,14 +448,27 @@ document.addEventListener("DOMContentLoaded", () => {
 
       div.addEventListener("contextmenu", (e) => {
         e.preventDefault();
-        if (confirm("Delete this message?")) {
-          socket.emit("delete-message", { id: data.id });
+        const delForAll = confirm(
+          "Delete this message?\nOK = Delete for everyone\nCancel = Delete only for me"
+        );
+        if (delForAll) {
+          socket.emit("delete-message-everyone", { id: data.id });
+        } else {
+          socket.emit("delete-message-me", { id: data.id });
         }
       });
     } else {
       // reply to others' messages on double-click
       div.addEventListener("dblclick", () => {
         setReply(data);
+      });
+
+      // allow delete-for-me on others' messages too (like WhatsApp)
+      div.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        if (confirm("Delete this message for you?")) {
+          socket.emit("delete-message-me", { id: data.id });
+        }
       });
     }
 
@@ -403,6 +485,3 @@ document.addEventListener("DOMContentLoaded", () => {
     window.location.href = "/";
   };
 });
-
-
-
