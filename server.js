@@ -15,13 +15,10 @@ const io = new Server(http, {
 // =======================
 const mongoose = require("mongoose");
 
-mongoose
-  .connect(process.env.MONGO_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  })
+mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log("MongoDB connected"))
-  .catch((err) => console.error("MongoDB error:", err));
+  .catch(err => console.error("MongoDB error:", err));
+
 
 const Message = mongoose.model(
   "Message",
