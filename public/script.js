@@ -3,7 +3,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // ===== Socket connection =====
   const socket = io("https://let-s-yap.onrender.com", {
-    transports: ["websocket", "polling"],
+    transports: ["polling", "websocket"],
+    withCredentials: false
   });
   // (Locally you could just use: const socket = io();)
 
