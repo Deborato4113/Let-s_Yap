@@ -41,11 +41,46 @@ document.addEventListener("DOMContentLoaded", () => {
   userRoomEl.textContent = "Room: " + (user.room || "General");
   roomTitleEl.textContent = user.room || "Chatroom";
 
-  if (user.photoURL) {
-    userAvatarEl.src = user.photoURL;
-  } else {
-    userAvatarEl.style.background = "#ccc";
+  // ===== Avatar helpers (initials fallback with deterministic color) =====
+  const AVATAR_PALETTE = [
+    "linear-gradient(135deg,#14c9b6,#0ea5c4)",
+    "linear-gradient(135deg,#f97066,#f59e0b)",
+    "linear-gradient(135deg,#7c8cf8,#a855f7)",
+    "linear-gradient(135deg,#22c55e,#0ea5c4)",
+    "linear-gradient(135deg,#f472b6,#f97066)",
+    "linear-gradient(135deg,#38bdf8,#7c8cf8)",
+  ];
+
+  function colorForName(name) {
+    const str = String(name || "?");
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    return AVATAR_PALETTE[Math.abs(hash) % AVATAR_PALETTE.length];
   }
+
+  function initialsForName(name) {
+    const parts = String(name || "?").trim().split(/\s+/);
+    const initials = parts.slice(0, 2).map((p) => p[0] || "").join("");
+    return (initials || "?").toUpperCase();
+  }
+
+  function applyAvatar(el, name, photoURL) {
+    if (photoURL) {
+      el.style.backgroundImage = `url("${photoURL}")`;
+      el.style.backgroundSize = "cover";
+      el.style.backgroundPosition = "center";
+      el.style.background = el.style.backgroundImage; // fallback shorthand consumers
+      el.textContent = "";
+      return;
+    }
+    el.style.backgroundImage = "none";
+    el.style.background = colorForName(name);
+    el.textContent = initialsForName(name);
+  }
+
+  applyAvatar(userAvatarEl, user.name, user.photoURL);
 
   const currentUserName = user.name;
 
@@ -58,7 +93,11 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // join room on connect
-  socket.emit("join-room", { name: user.name, room: user.room });
+  socket.emit("join-room", {
+  name: user.name,
+  room: user.room,
+  uid: user.uid || user.name // fallback if guest
+});
 
   // ===== Background picker =====
   const messagesContainer = document.querySelector(".messages");

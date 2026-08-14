@@ -30,9 +30,9 @@ const Message = mongoose.model(
     id: String,
     room: String,
     user: String,
-    senderId: String,
+    senderId: String,   // Firebase UID
 
-    type: String,     // text, file, system
+    type: String,
     text: String,
 
     fileName: String,
@@ -41,15 +41,24 @@ const Message = mongoose.model(
 
     timestamp: Number,
 
-    // reply data
     replyToId: String,
     replyToText: String,
     replyToUser: String,
 
-    // reactions
     reactions: {
       type: Map,
       default: {}
+    },
+
+    // NEW FIELDS
+    deletedForEveryone: {
+      type: Boolean,
+      default: false
+    },
+
+    deletedFor: {
+      type: [String], // Array of Firebase UIDs
+      default: []
     }
   })
 );
@@ -70,7 +79,8 @@ app.get("/chat", (req, res) => {
 // -------------------------
 // USERS (IN-MEMORY)
 // -------------------------
-const users = new Map(); // socket.id → { name, room }
+const users = new Map(); 
+// socket.id → { name, room, uid }
 
 // -------------------------
 // SOCKET CONNECTION
@@ -81,31 +91,34 @@ io.on("connection", (socket) => {
   // -------------------------
   // USER JOINS ROOM
   // -------------------------
-  socket.on("join-room", async ({ name, room }) => {
-    if (!name) name = "Anonymous";
-    if (!room) room = "General";
+  socket.on("join-room", async ({ name, room, uid }) => {
+  if (!name) name = "Anonymous";
+  if (!room) room = "General";
+  if (!uid) uid = name; // fallback for guest users
 
-    users.set(socket.id, { name, room });
-    socket.join(room);
+  users.set(socket.id, { name, room, uid });
+  socket.join(room);
 
-    // send system message
-    const systemMsg = {
-      id: Date.now().toString(),
-      type: "system",
-      text: `${name} joined the conversation`,
-      timestamp: Date.now(),
-      room
-    };
-    io.to(room).emit("message", systemMsg);
-
-    // -------------------------
-    // SEND CHAT HISTORY
-    // -------------------------
-    const history = await Message.find({ room }).sort({ timestamp: 1 });
-    socket.emit("chat-history", history);
-
-    sendUserList(room);
+  // Send system message to others only
+  socket.to(room).emit("message", {
+    id: Date.now().toString(),
+    type: "system",
+    text: `${name} joined the conversation`,
+    timestamp: Date.now(),
+    room
   });
+
+  // Load history excluding deleted messages
+  const history = await Message.find({
+    room,
+    deletedForEveryone: false,
+    deletedFor: { $ne: uid }
+  }).sort({ timestamp: 1 });
+
+  socket.emit("chat-history", history);
+
+  sendUserList(room);
+});
 
   // -------------------------
   // USER SENDS MESSAGE
@@ -114,27 +127,43 @@ io.on("connection", (socket) => {
     const user = users.get(socket.id);
     if (!user) return;
 
-    const message = new Message({
-      id: msg.id,
-      room: user.room,
-      user: user.name,
-      senderId: socket.id,
+    const Message = mongoose.model(
+  "Message",
+  new mongoose.Schema({
+    id: String,
+    room: String,
+    user: String,
+    senderId: String,
 
-      type: msg.type,
-      text: msg.text,
+    type: String,
+    text: String,
 
-      fileName: msg.fileName,
-      fileType: msg.fileType,
-      fileData: msg.fileData,
+    fileName: String,
+    fileType: String,
+    fileData: String,
 
-      timestamp: Date.now(),
+    timestamp: Number,
 
-      replyToId: msg.replyToId || null,
-      replyToText: msg.replyToText || null,
-      replyToUser: msg.replyToUser || null,
+    replyToId: String,
+    replyToText: String,
+    replyToUser: String,
 
-      reactions: {}
-    });
+    reactions: {
+      type: Map,
+      default: {}
+    },
+
+    deletedForEveryone: {
+      type: Boolean,
+      default: false
+    },
+
+    deletedFor: {
+      type: [String], // store socket.id or userId
+      default: []
+    }
+  })
+);
 
     await message.save();
 
@@ -167,7 +196,12 @@ io.on("connection", (socket) => {
     const user = users.get(socket.id);
     if (!user) return;
 
-    await Message.deleteOne({ id });
+    await Message.updateOne(
+  { id },
+  { $set: { deletedForEveryone: true } }
+);
+
+io.to(user.room).emit("message-deleted", { id });
 
     io.to(user.room).emit("message-deleted", { id });
   });
@@ -176,10 +210,17 @@ io.on("connection", (socket) => {
   // DELETE MESSAGE FOR ME ONLY
   // (Client-side only — server does nothing)
   // -------------------------
-  socket.on("delete-message-me", ({ id }) => {
-    socket.emit("message-deleted-me", { id });
-  });
+  socket.on("delete-message-me", async ({ id }) => {
+  const user = users.get(socket.id);
+  if (!user) return;
 
+  await Message.updateOne(
+    { id },
+    { $addToSet: { deletedFor: socket.id } }
+  );
+
+  socket.emit("message-deleted-me", { id });
+});
   // -------------------------
   // REACTIONS
   // -------------------------
