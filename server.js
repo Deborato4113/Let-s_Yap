@@ -127,43 +127,13 @@ io.on("connection", (socket) => {
     const user = users.get(socket.id);
     if (!user) return;
 
-    const Message = mongoose.model(
-  "Message",
-  new mongoose.Schema({
-    id: String,
-    room: String,
-    user: String,
-    senderId: String,
-
-    type: String,
-    text: String,
-
-    fileName: String,
-    fileType: String,
-    fileData: String,
-
-    timestamp: Number,
-
-    replyToId: String,
-    replyToText: String,
-    replyToUser: String,
-
-    reactions: {
-      type: Map,
-      default: {}
-    },
-
-    deletedForEveryone: {
-      type: Boolean,
-      default: false
-    },
-
-    deletedFor: {
-      type: [String], // store socket.id or userId
-      default: []
-    }
-  })
-);
+    const message = new Message({
+      ...msg,
+      room: user.room,
+      user: user.name,
+      senderId: user.uid,
+      timestamp: msg.timestamp || Date.now()
+    });
 
     await message.save();
 
@@ -174,7 +144,12 @@ io.on("connection", (socket) => {
   // READ RECEIPT
   // -------------------------
   socket.on("seen-message", ({ messageId, senderId }) => {
-    io.to(senderId).emit("message-seen", { messageId });
+    // senderId is a Firebase UID, not a socket id/room, so find their live socket(s)
+    for (const [sockId, u] of users.entries()) {
+      if (u.uid === senderId) {
+        io.to(sockId).emit("message-seen", { messageId });
+      }
+    }
   });
 
   // -------------------------
@@ -197,11 +172,9 @@ io.on("connection", (socket) => {
     if (!user) return;
 
     await Message.updateOne(
-  { id },
-  { $set: { deletedForEveryone: true } }
-);
-
-io.to(user.room).emit("message-deleted", { id });
+      { id },
+      { $set: { deletedForEveryone: true } }
+    );
 
     io.to(user.room).emit("message-deleted", { id });
   });
@@ -216,7 +189,7 @@ io.to(user.room).emit("message-deleted", { id });
 
   await Message.updateOne(
     { id },
-    { $addToSet: { deletedFor: socket.id } }
+    { $addToSet: { deletedFor: user.uid } }
   );
 
   socket.emit("message-deleted-me", { id });
