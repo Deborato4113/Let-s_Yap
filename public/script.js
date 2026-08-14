@@ -87,8 +87,8 @@ document.addEventListener("DOMContentLoaded", () => {
   // ===== Chat history =====
   socket.on("chat-history", (messages) => {
     messages.forEach((m) => {
-      const isMe = m.senderId === socket.id;
-      addChatMessage(m, isMe);
+      const isMe = m.senderId === (user.uid || user.name);
+      addChatMessage(m, isMe, true);
     });
   });
 
@@ -199,7 +199,16 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    const isMe = data.senderId === socket.id;
+    const isMe = data.senderId === (user.uid || user.name);
+
+    if (isMe && myMessages.has(data.id)) {
+      // this is the server's echo of a message we already rendered optimistically
+      // upgrade its tick from "sent" to "delivered"
+      const el = myMessages.get(data.id);
+      setTickState(el, "delivered");
+      return;
+    }
+
     addChatMessage(data, isMe);
 
     // if I'm receiver: send seen receipt
@@ -226,15 +235,27 @@ document.addEventListener("DOMContentLoaded", () => {
     typingEl.textContent = isTyping ? `${user} is typing…` : "";
   });
 
+  // Tick state machine: sent (single grey) -> delivered (double grey) -> read (double blue)
+  function tickGlyph(state) {
+    if (state === "sent") return "✓";
+    return "✓✓"; // delivered or read
+  }
+
+  function setTickState(el, state) {
+    const tickSpan = el.querySelector(".tick");
+    if (!tickSpan) return;
+    // never downgrade read -> delivered
+    if (tickSpan.dataset.state === "read" && state !== "read") return;
+    tickSpan.dataset.state = state;
+    tickSpan.textContent = tickGlyph(state);
+    tickSpan.classList.toggle("tick-read", state === "read");
+  }
+
   // read receipt - seen
   socket.on("message-seen", ({ messageId }) => {
     const el = myMessages.get(messageId);
     if (!el) return;
-    const tickSpan = el.querySelector(".tick");
-    if (tickSpan) {
-      tickSpan.textContent = "✓✓";
-      tickSpan.classList.add("seen");
-    }
+    setTickState(el, "read");
   });
 
   // users in room
@@ -322,6 +343,7 @@ document.addEventListener("DOMContentLoaded", () => {
       id,
       type: file ? "file" : "text",
       text,
+      timestamp: Date.now(),
     };
 
     // attach reply info if present
@@ -336,13 +358,17 @@ document.addEventListener("DOMContentLoaded", () => {
       const reader = new FileReader();
       reader.onload = () => {
         const fileData = reader.result;
-        socket.emit("chat-message", {
+        const payload = {
           ...basePayload,
           fileName: file.name,
           fileType: file.type,
+          fileSize: file.size,
           fileData,
           text: text || "", // caption or empty
-        });
+        };
+
+        addChatMessage({ ...payload, user: currentUserName }, true);
+        socket.emit("chat-message", payload);
 
         fileInput.value = "";
         inputEl.value = "";
@@ -353,6 +379,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // ---- TEXT MESSAGE ----
+    addChatMessage({ ...basePayload, user: currentUserName }, true);
     socket.emit("chat-message", basePayload);
 
     inputEl.value = "";
@@ -368,7 +395,124 @@ document.addEventListener("DOMContentLoaded", () => {
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
 
-  function addChatMessage(data, isMe) {
+  // ===== Link detection helpers =====
+  const URL_RE = /(https?:\/\/[^\s<]+[^\s<.,:;!?)'"\]])/gi;
+
+  function linkifyText(text) {
+    const frag = document.createDocumentFragment();
+    let lastIndex = 0;
+    let match;
+    URL_RE.lastIndex = 0;
+    while ((match = URL_RE.exec(text)) !== null) {
+      if (match.index > lastIndex) {
+        frag.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
+      }
+      const a = document.createElement("a");
+      a.href = match[0];
+      a.textContent = match[0];
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      frag.appendChild(a);
+      lastIndex = match.index + match[0].length;
+    }
+    if (lastIndex < text.length) {
+      frag.appendChild(document.createTextNode(text.slice(lastIndex)));
+    }
+    return frag;
+  }
+
+  function firstUrlIn(text) {
+    URL_RE.lastIndex = 0;
+    const m = URL_RE.exec(text || "");
+    return m ? m[0] : null;
+  }
+
+  function domainOf(url) {
+    try {
+      return new URL(url).hostname.replace(/^www\./, "");
+    } catch {
+      return url;
+    }
+  }
+
+  function formatFileSize(bytes) {
+    if (!bytes && bytes !== 0) return "";
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+  }
+
+  function fileIconFor(fileType, fileName) {
+    const ext = (fileName || "").split(".").pop().toLowerCase();
+    if (fileType && fileType.includes("pdf")) return "📄";
+    if (["doc", "docx"].includes(ext)) return "📝";
+    if (["xls", "xlsx", "csv"].includes(ext)) return "📊";
+    if (["zip", "rar", "7z"].includes(ext)) return "🗜️";
+    if (fileType && fileType.startsWith("audio/")) return "🎵";
+    return "📎";
+  }
+
+  // simple in-memory cache so we don't refetch a preview for the same URL twice
+  const linkPreviewCache = new Map();
+
+  async function attachLinkPreview(container, url) {
+    // Lightweight client-side unfurl via a public metadata proxy.
+    // Fails silently (no preview) if unavailable — never blocks the message.
+    try {
+      let data = linkPreviewCache.get(url);
+      if (!data) {
+        const res = await fetch(
+          "https://api.microlink.io/?url=" + encodeURIComponent(url)
+        );
+        if (!res.ok) return;
+        const json = await res.json();
+        if (json.status !== "success") return;
+        data = json.data;
+        linkPreviewCache.set(url, data);
+      }
+      if (!data || (!data.title && !data.image)) return;
+
+      const card = document.createElement("a");
+      card.className = "link-preview";
+      card.href = url;
+      card.target = "_blank";
+      card.rel = "noopener noreferrer";
+
+      if (data.image && data.image.url) {
+        const img = document.createElement("img");
+        img.src = data.image.url;
+        img.loading = "lazy";
+        card.appendChild(img);
+      }
+
+      const body = document.createElement("div");
+      body.className = "link-preview-body";
+
+      if (data.title) {
+        const title = document.createElement("div");
+        title.className = "link-preview-title";
+        title.textContent = data.title;
+        body.appendChild(title);
+      }
+      if (data.description) {
+        const desc = document.createElement("div");
+        desc.className = "link-preview-desc";
+        desc.textContent = data.description;
+        body.appendChild(desc);
+      }
+      const domain = document.createElement("div");
+      domain.className = "link-preview-domain";
+      domain.textContent = domainOf(url);
+      body.appendChild(domain);
+
+      card.appendChild(body);
+      container.insertBefore(card, container.firstChild);
+    } catch {
+      // network blocked / offline — just skip the preview
+    }
+  }
+
+  function addChatMessage(data, isMe, skipTickInit) {
     const div = document.createElement("div");
     div.className = "message " + (isMe ? "me" : "other");
     div.dataset.id = data.id;
@@ -394,27 +538,54 @@ document.addEventListener("DOMContentLoaded", () => {
     textSpan.className = "message-text";
 
     if (data.type === "file") {
-      // file rendering
+      // ---- media / file rendering ----
       if (data.fileType && data.fileType.startsWith("image/")) {
         const img = document.createElement("img");
         img.src = data.fileData;
+        img.addEventListener("click", () => window.open(data.fileData, "_blank"));
         div.appendChild(img);
+      } else if (data.fileType && data.fileType.startsWith("video/")) {
+        const video = document.createElement("video");
+        video.src = data.fileData;
+        video.controls = true;
+        div.appendChild(video);
+      } else {
+        const chip = document.createElement("a");
+        chip.className = "file-chip";
+        chip.href = data.fileData;
+        chip.download = data.fileName || "file";
+
+        const icon = document.createElement("div");
+        icon.className = "file-chip-icon";
+        icon.textContent = fileIconFor(data.fileType, data.fileName);
+        chip.appendChild(icon);
+
+        const meta = document.createElement("div");
+        meta.className = "file-chip-meta";
+        const nameEl = document.createElement("div");
+        nameEl.className = "file-chip-name";
+        nameEl.textContent = data.fileName || "Download file";
+        const sizeEl = document.createElement("div");
+        sizeEl.className = "file-chip-size";
+        sizeEl.textContent = formatFileSize(data.fileSize);
+        meta.appendChild(nameEl);
+        meta.appendChild(sizeEl);
+        chip.appendChild(meta);
+
+        div.appendChild(chip);
       }
 
-      const link = document.createElement("a");
-      link.href = data.fileData;
-      link.download = data.fileName || "file";
-      link.textContent = data.fileName || "Download file";
-      link.className = "file-link";
-      div.appendChild(link);
-
       if (data.text) {
-        textSpan.textContent = " " + data.text;
+        textSpan.appendChild(linkifyText(data.text));
         div.appendChild(textSpan);
       }
     } else {
-      textSpan.textContent = data.text;
+      textSpan.appendChild(linkifyText(data.text || ""));
       div.appendChild(textSpan);
+
+      // auto link-preview card for the first URL in a text-only message
+      const url = firstUrlIn(data.text);
+      if (url) attachLinkPreview(div, url);
     }
 
     // time + ticks
@@ -434,7 +605,10 @@ document.addEventListener("DOMContentLoaded", () => {
     if (isMe) {
       const tickSpan = document.createElement("span");
       tickSpan.className = "tick";
-      tickSpan.textContent = "✓";
+      // history messages are already delivered+ (server has them); fresh sends start as "sent"
+      const initState = skipTickInit ? "delivered" : "sent";
+      tickSpan.dataset.state = initState;
+      tickSpan.textContent = tickGlyph(initState);
       timeSpan.appendChild(tickSpan);
       myMessages.set(data.id, div);
     }
