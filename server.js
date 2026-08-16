@@ -50,6 +50,11 @@ const Message = mongoose.model(
       default: {}
     },
 
+    pinned: {
+      type: Boolean,
+      default: false
+    },
+
     // NEW FIELDS
     deletedForEveryone: {
       type: Boolean,
@@ -109,16 +114,57 @@ io.on("connection", (socket) => {
   });
 
   // Load history excluding deleted messages
+  const PAGE_SIZE = 30;
+
   const history = await Message.find({
     room,
     deletedForEveryone: false,
     deletedFor: { $ne: uid }
+  })
+    .sort({ timestamp: -1 })
+    .limit(PAGE_SIZE);
+
+  history.reverse(); // oldest -> newest for rendering
+
+  const hasMore = history.length === PAGE_SIZE;
+
+  socket.emit("chat-history", { messages: history, hasMore });
+
+  const pinned = await Message.find({
+    room,
+    pinned: true,
+    deletedForEveryone: false
   }).sort({ timestamp: 1 });
 
-  socket.emit("chat-history", history);
+  socket.emit("pinned-messages", pinned);
 
   sendUserList(room);
 });
+
+  // -------------------------
+  // LOAD OLDER MESSAGES (PAGINATION)
+  // -------------------------
+  socket.on("load-more-messages", async ({ before }) => {
+    const user = users.get(socket.id);
+    if (!user) return;
+
+    const PAGE_SIZE = 30;
+
+    const older = await Message.find({
+      room: user.room,
+      deletedForEveryone: false,
+      deletedFor: { $ne: user.uid },
+      timestamp: { $lt: before }
+    })
+      .sort({ timestamp: -1 })
+      .limit(PAGE_SIZE);
+
+    older.reverse();
+
+    const hasMore = older.length === PAGE_SIZE;
+
+    socket.emit("more-messages", { messages: older, hasMore });
+  });
 
   // -------------------------
   // USER SENDS MESSAGE
@@ -173,7 +219,7 @@ io.on("connection", (socket) => {
 
     await Message.updateOne(
       { id },
-      { $set: { deletedForEveryone: true } }
+      { $set: { deletedForEveryone: true, pinned: false } }
     );
 
     io.to(user.room).emit("message-deleted", { id });
@@ -208,6 +254,28 @@ io.on("connection", (socket) => {
       id,
       reactions: Object.fromEntries(msg.reactions)
     });
+  });
+
+  // -------------------------
+  // PIN / UNPIN MESSAGE
+  // -------------------------
+  socket.on("pin-message", async ({ id }) => {
+    const user = users.get(socket.id);
+    if (!user) return;
+
+    await Message.updateOne({ id }, { $set: { pinned: true } });
+    const msg = await Message.findOne({ id });
+
+    io.to(user.room).emit("message-pinned", msg);
+  });
+
+  socket.on("unpin-message", async ({ id }) => {
+    const user = users.get(socket.id);
+    if (!user) return;
+
+    await Message.updateOne({ id }, { $set: { pinned: false } });
+
+    io.to(user.room).emit("message-unpinned", { id });
   });
 
   // -------------------------
