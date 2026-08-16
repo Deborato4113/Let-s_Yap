@@ -69,6 +69,21 @@ const Message = mongoose.model(
 );
 
 // -------------------------
+// USER PROFILE SCHEMA
+// -------------------------
+const UserProfile = mongoose.model(
+  "UserProfile",
+  new mongoose.Schema({
+    uid: { type: String, unique: true },
+    name: String,
+    bio: { type: String, default: "" },
+    avatarData: { type: String, default: "" }, // base64 data URL, empty = use initials/Google photo
+    status: { type: String, default: "online" }, // online | away | dnd | offline
+    lastSeen: { type: Number, default: Date.now }
+  })
+);
+
+// -------------------------
 // STATIC FILES
 // -------------------------
 app.use(express.static(__dirname + "/public"));
@@ -96,12 +111,37 @@ io.on("connection", (socket) => {
   // -------------------------
   // USER JOINS ROOM
   // -------------------------
-  socket.on("join-room", async ({ name, room, uid }) => {
+  socket.on("join-room", async ({ name, room, uid, photoURL }) => {
   if (!name) name = "Anonymous";
   if (!room) room = "General";
   if (!uid) uid = name; // fallback for guest users
 
-  users.set(socket.id, { name, room, uid });
+  // Load or create persistent profile
+  let profile = await UserProfile.findOne({ uid });
+  if (!profile) {
+    profile = await UserProfile.create({
+      uid,
+      name,
+      bio: "",
+      avatarData: "",
+      status: "online",
+      lastSeen: Date.now()
+    });
+  } else {
+    profile.name = name; // keep display name fresh
+    profile.status = "online";
+    await profile.save();
+  }
+
+  users.set(socket.id, {
+    name,
+    room,
+    uid,
+    photoURL: photoURL || null,
+    bio: profile.bio,
+    avatarData: profile.avatarData,
+    status: profile.status
+  });
   socket.join(room);
 
   // Send system message to others only
@@ -279,6 +319,64 @@ io.on("connection", (socket) => {
   });
 
   // -------------------------
+  // PROFILE: FETCH (view someone else's profile)
+  // -------------------------
+  socket.on("get-profile", async ({ uid }) => {
+    const profile = await UserProfile.findOne({ uid });
+    if (!profile) return;
+    socket.emit("profile-data", {
+      uid: profile.uid,
+      name: profile.name,
+      bio: profile.bio,
+      avatarData: profile.avatarData,
+      status: profile.status,
+      lastSeen: profile.lastSeen
+    });
+  });
+
+  // -------------------------
+  // PROFILE: UPDATE (name / bio / avatar)
+  // -------------------------
+  socket.on("update-profile", async ({ name, bio, avatarData }) => {
+    const u = users.get(socket.id);
+    if (!u) return;
+
+    const update = {};
+    if (typeof name === "string" && name.trim()) update.name = name.trim();
+    if (typeof bio === "string") update.bio = bio.slice(0, 200);
+    if (typeof avatarData === "string") update.avatarData = avatarData;
+
+    await UserProfile.updateOne({ uid: u.uid }, { $set: update });
+
+    if (update.name) u.name = update.name;
+    if (typeof update.bio === "string") u.bio = update.bio;
+    if (typeof update.avatarData === "string") u.avatarData = update.avatarData;
+
+    io.to(u.room).emit("profile-updated", {
+      uid: u.uid,
+      name: u.name,
+      bio: u.bio,
+      avatarData: u.avatarData
+    });
+
+    sendUserList(u.room);
+  });
+
+  // -------------------------
+  // PRESENCE: STATUS CHANGE
+  // -------------------------
+  socket.on("set-status", async (status) => {
+    const u = users.get(socket.id);
+    if (!u) return;
+    if (!["online", "away", "dnd"].includes(status)) return;
+
+    u.status = status;
+    await UserProfile.updateOne({ uid: u.uid }, { $set: { status } });
+
+    sendUserList(u.room);
+  });
+
+  // -------------------------
   // TYPING
   // -------------------------
   socket.on("typing", (isTyping) => {
@@ -293,7 +391,7 @@ io.on("connection", (socket) => {
   // -------------------------
   // DISCONNECT
   // -------------------------
-  socket.on("disconnect", () => {
+  socket.on("disconnect", async () => {
     const u = users.get(socket.id);
     if (!u) return;
 
@@ -304,14 +402,31 @@ io.on("connection", (socket) => {
       timestamp: Date.now()
     });
 
+    const lastSeen = Date.now();
+    await UserProfile.updateOne(
+      { uid: u.uid },
+      { $set: { status: "offline", lastSeen } }
+    );
+
     users.delete(socket.id);
+    io.to(u.room).emit("user-offline", { uid: u.uid, lastSeen });
     sendUserList(u.room);
   });
 
   function sendUserList(room) {
     const list = [];
     users.forEach((val, key) => {
-      if (val.room === room) list.push({ id: key, name: val.name });
+      if (val.room === room) {
+        list.push({
+          id: key,
+          uid: val.uid,
+          name: val.name,
+          status: val.status || "online",
+          photoURL: val.photoURL || null,
+          avatarData: val.avatarData || null,
+          bio: val.bio || ""
+        });
+      }
     });
     io.to(room).emit("room-users", list);
   }

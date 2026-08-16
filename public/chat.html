@@ -24,12 +24,19 @@
         <button id="logoutBtn" class="btn small-btn">Logout</button>
       </div>
 
-      <div class="profile-section">
+      <div class="profile-section" id="profileSection">
         <div id="userAvatar" class="avatar"></div>
         <div>
           <div id="userName" class="username"></div>
           <div id="userRoom" class="user-room"></div>
         </div>
+        <button id="editProfileBtn" class="edit-profile-btn" title="Edit profile">✎</button>
+      </div>
+
+      <div class="status-selector" id="statusSelector">
+        <button class="status-opt" data-status="online"><span class="status-dot status-online"></span>Online</button>
+        <button class="status-opt" data-status="away"><span class="status-dot status-away"></span>Away</button>
+        <button class="status-opt" data-status="dnd"><span class="status-dot status-dnd"></span>Do Not Disturb</button>
       </div>
 
       <div class="section-title">Online</div>

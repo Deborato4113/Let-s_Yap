@@ -82,9 +82,11 @@ document.addEventListener("DOMContentLoaded", () => {
     el.textContent = initialsForName(name);
   }
 
-  applyAvatar(userAvatarEl, user.name, user.photoURL);
+  applyAvatar(userAvatarEl, user.name, user.avatarData || user.photoURL);
 
   const currentUserName = user.name;
+  let myBio = user.bio || "";
+  let myStatus = "online";
 
   // ===== Chat history =====
   let oldestLoadedTimestamp = null;
@@ -153,7 +155,8 @@ document.addEventListener("DOMContentLoaded", () => {
   socket.emit("join-room", {
   name: user.name,
   room: user.room,
-  uid: user.uid || user.name // fallback if guest
+  uid: user.uid || user.name, // fallback if guest
+  photoURL: user.photoURL || null
 });
 
   // ===== Background picker =====
@@ -236,6 +239,212 @@ document.addEventListener("DOMContentLoaded", () => {
     const el = document.querySelector(`.message[data-id="${id}"]`);
     if (el) el.classList.remove("is-pinned");
   });
+
+  // ===== Presence: status selector =====
+  const editProfileBtn = document.getElementById("editProfileBtn");
+  const statusOptButtons = document.querySelectorAll(".status-opt");
+
+  function setMyStatus(status) {
+    myStatus = status;
+    socket.emit("set-status", status);
+    statusOptButtons.forEach((b) =>
+      b.classList.toggle("active", b.dataset.status === status)
+    );
+  }
+
+  statusOptButtons.forEach((btn) => {
+    btn.addEventListener("click", () => setMyStatus(btn.dataset.status));
+  });
+  setMyStatus("online");
+
+  // idle detection -> auto-away after 3 min inactivity (unless user set DND manually)
+  let idleTimer = null;
+  let userManualStatus = "online";
+  function resetIdleTimer() {
+    if (userManualStatus === "dnd") return; // don't override explicit DND
+    if (myStatus === "away") setMyStatus("online");
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => setMyStatus("away"), 3 * 60 * 1000);
+  }
+  ["mousemove", "keydown", "click", "scroll"].forEach((evt) =>
+    document.addEventListener(evt, resetIdleTimer)
+  );
+  resetIdleTimer();
+
+  statusOptButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      userManualStatus = btn.dataset.status;
+      if (userManualStatus !== "dnd") resetIdleTimer();
+    });
+  });
+
+  // ===== Edit profile modal =====
+  function openEditProfileModal() {
+    closeAnyModal();
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.id = "activeModal";
+
+    const modal = document.createElement("div");
+    modal.className = "modal-card";
+
+    modal.innerHTML = `
+      <h3 class="modal-title">Edit profile</h3>
+      <div class="modal-avatar-row">
+        <div id="modalAvatarPreview" class="avatar modal-avatar"></div>
+        <label class="btn small-btn modal-upload-btn">
+          Change photo
+          <input type="file" id="modalAvatarInput" accept="image/*" hidden />
+        </label>
+      </div>
+      <label class="input-label">Display name</label>
+      <input id="modalNameInput" type="text" maxlength="40" />
+      <label class="input-label">Bio</label>
+      <textarea id="modalBioInput" maxlength="200" rows="3" placeholder="Say something about yourself…"></textarea>
+      <div class="modal-actions">
+        <button class="btn small-btn" id="modalCancelBtn">Cancel</button>
+        <button class="btn login_primary-btn modal-save-btn" id="modalSaveBtn">Save changes</button>
+      </div>
+    `;
+
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    const preview = modal.querySelector("#modalAvatarPreview");
+    applyAvatar(preview, user.name, user.avatarData || user.photoURL);
+
+    modal.querySelector("#modalNameInput").value = user.name || "";
+    modal.querySelector("#modalBioInput").value = myBio || "";
+
+    let pendingAvatarData = null;
+
+    modal.querySelector("#modalAvatarInput").addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (file.size > 2 * 1024 * 1024) {
+        alert("Please choose an image under 2MB.");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        pendingAvatarData = reader.result;
+        preview.style.backgroundImage = `url("${pendingAvatarData}")`;
+        preview.style.backgroundSize = "cover";
+        preview.style.backgroundPosition = "center";
+        preview.textContent = "";
+      };
+      reader.readAsDataURL(file);
+    });
+
+    modal.querySelector("#modalCancelBtn").addEventListener("click", closeAnyModal);
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) closeAnyModal();
+    });
+
+    modal.querySelector("#modalSaveBtn").addEventListener("click", () => {
+      const newName = modal.querySelector("#modalNameInput").value.trim() || user.name;
+      const newBio = modal.querySelector("#modalBioInput").value.trim();
+
+      const payload = { name: newName, bio: newBio };
+      if (pendingAvatarData) payload.avatarData = pendingAvatarData;
+
+      socket.emit("update-profile", payload);
+
+      user.name = newName;
+      user.bio = newBio;
+      if (pendingAvatarData) user.avatarData = pendingAvatarData;
+      myBio = newBio;
+      userNameEl.textContent = newName;
+      applyAvatar(userAvatarEl, newName, user.avatarData || user.photoURL);
+      localStorage.setItem("chatUser", JSON.stringify(user));
+
+      closeAnyModal();
+    });
+  }
+
+  function closeAnyModal() {
+    const existing = document.getElementById("activeModal");
+    if (existing) existing.remove();
+  }
+
+  if (editProfileBtn) {
+    editProfileBtn.addEventListener("click", openEditProfileModal);
+  }
+
+  // ===== View someone else's profile =====
+  function openProfileView(u) {
+    if (u.uid === (user.uid || user.name)) {
+      openEditProfileModal();
+      return;
+    }
+    socket.emit("get-profile", { uid: u.uid });
+    // render a lightweight card immediately using room-users data;
+    // it'll upgrade with bio/lastSeen once "profile-data" arrives
+    renderProfileModal(
+      { uid: u.uid, name: u.name, bio: "", avatarData: u.avatarData, photoURL: u.photoURL, status: u.status },
+      true
+    );
+  }
+
+  function renderProfileModal(profile, isPreview) {
+    closeAnyModal();
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.id = "activeModal";
+
+    const modal = document.createElement("div");
+    modal.className = "modal-card profile-view-card";
+
+    const av = document.createElement("div");
+    av.className = "avatar modal-avatar";
+    applyAvatar(av, profile.name, profile.avatarData || profile.photoURL);
+    modal.appendChild(av);
+
+    const nameEl = document.createElement("div");
+    nameEl.className = "profile-view-name";
+    nameEl.textContent = profile.name;
+    modal.appendChild(nameEl);
+
+    const statusEl = document.createElement("div");
+    statusEl.className = "profile-view-status";
+    if (profile.status === "offline") {
+      const seen = lastSeenCache.get(profile.uid) || profile.lastSeen;
+      statusEl.textContent = seen ? `Last seen ${timeAgo(seen)}` : "Offline";
+    } else {
+      statusEl.textContent = STATUS_LABEL[profile.status] || "Online";
+    }
+    modal.appendChild(statusEl);
+
+    if (profile.bio) {
+      const bioEl = document.createElement("div");
+      bioEl.className = "profile-view-bio";
+      bioEl.textContent = profile.bio;
+      modal.appendChild(bioEl);
+    }
+
+    const closeBtn = document.createElement("button");
+    closeBtn.className = "btn small-btn modal-close-btn";
+    closeBtn.textContent = "Close";
+    closeBtn.addEventListener("click", closeAnyModal);
+    modal.appendChild(closeBtn);
+
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) closeAnyModal();
+    });
+  }
+
+  function timeAgo(ts) {
+    const sec = Math.floor((Date.now() - ts) / 1000);
+    if (sec < 60) return "just now";
+    const min = Math.floor(sec / 60);
+    if (min < 60) return `${min}m ago`;
+    const hr = Math.floor(min / 60);
+    if (hr < 24) return `${hr}h ago`;
+    const day = Math.floor(hr / 24);
+    return `${day}d ago`;
+  }
 
   // ===== Helpers =====
   function formatTime(ts) {
@@ -384,13 +593,67 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // users in room
+  const STATUS_LABEL = { online: "Online", away: "Away", dnd: "Do Not Disturb" };
+
   socket.on("room-users", (list) => {
     userListEl.innerHTML = "";
     list.forEach((u) => {
       const li = document.createElement("li");
-      li.textContent = u.name;
+      li.className = "user-row";
+      li.dataset.uid = u.uid;
+
+      const av = document.createElement("div");
+      av.className = "user-row-avatar";
+      applyAvatar(av, u.name, u.avatarData || u.photoURL);
+      const dot = document.createElement("span");
+      dot.className = `status-dot status-${u.status || "online"}`;
+      av.appendChild(dot);
+      li.appendChild(av);
+
+      const meta = document.createElement("div");
+      meta.className = "user-row-meta";
+      const nameEl = document.createElement("div");
+      nameEl.className = "user-row-name";
+      nameEl.textContent = u.name;
+      meta.appendChild(nameEl);
+      const statusEl = document.createElement("div");
+      statusEl.className = "user-row-status";
+      statusEl.textContent = STATUS_LABEL[u.status] || "Online";
+      meta.appendChild(statusEl);
+      li.appendChild(meta);
+
+      li.addEventListener("click", () => openProfileView(u));
+
       userListEl.appendChild(li);
     });
+  });
+
+  // live profile update from anyone (name/bio/avatar)
+  socket.on("profile-updated", ({ uid, name, bio, avatarData }) => {
+    // update any visible message sender names/avatars would require a full history
+    // scan; instead we just let the next room-users refresh + new messages reflect it.
+    if (uid === (user.uid || user.name)) {
+      if (name) {
+        user.name = name;
+        userNameEl.textContent = name;
+      }
+      if (typeof bio === "string") myBio = bio;
+      if (typeof avatarData === "string") {
+        user.avatarData = avatarData;
+        applyAvatar(userAvatarEl, user.name, user.avatarData || user.photoURL);
+      }
+      localStorage.setItem("chatUser", JSON.stringify(user));
+    }
+  });
+
+  socket.on("user-offline", ({ uid, lastSeen }) => {
+    lastSeenCache.set(uid, lastSeen);
+  });
+
+  const lastSeenCache = new Map(); // uid -> timestamp, for profile view
+
+  socket.on("profile-data", (profile) => {
+    renderProfileModal(profile, false);
   });
 
   // message edited
