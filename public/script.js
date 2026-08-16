@@ -70,15 +70,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function applyAvatar(el, name, photoURL) {
     if (photoURL) {
+      el.style.background = "none"; // clear any previous gradient first
       el.style.backgroundImage = `url("${photoURL}")`;
       el.style.backgroundSize = "cover";
       el.style.backgroundPosition = "center";
-      el.style.background = el.style.backgroundImage; // fallback shorthand consumers
+      el.style.backgroundRepeat = "no-repeat";
       el.textContent = "";
       return;
     }
-    el.style.backgroundImage = "none";
     el.style.background = colorForName(name);
+    el.style.backgroundImage = "none";
     el.textContent = initialsForName(name);
   }
 
@@ -372,11 +373,14 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // ===== View someone else's profile =====
+  const profilePhotoCache = new Map(); // uid -> photoURL, to survive the server round-trip
+
   function openProfileView(u) {
     if (u.uid === (user.uid || user.name)) {
       openEditProfileModal();
       return;
     }
+    if (u.photoURL) profilePhotoCache.set(u.uid, u.photoURL);
     socket.emit("get-profile", { uid: u.uid });
     // render a lightweight card immediately using room-users data;
     // it'll upgrade with bio/lastSeen once "profile-data" arrives
@@ -653,7 +657,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const lastSeenCache = new Map(); // uid -> timestamp, for profile view
 
   socket.on("profile-data", (profile) => {
-    renderProfileModal(profile, false);
+    // server doesn't persist Google photoURL, so restore it from cache if present
+    const cachedPhoto = profilePhotoCache.get(profile.uid);
+    renderProfileModal({ ...profile, photoURL: profile.photoURL || cachedPhoto }, false);
   });
 
   // message edited

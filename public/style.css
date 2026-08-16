@@ -497,6 +497,9 @@ select {
   height: 42px;
   border-radius: 50%;
   background: var(--accent-grad);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
   object-fit: cover;
   flex-shrink: 0;
   display: flex;
