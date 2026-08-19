@@ -89,10 +89,64 @@ document.addEventListener("DOMContentLoaded", () => {
   let myBio = user.bio || "";
   let myStatus = "online";
 
+  // ===== Room / DM state =====
+  let currentRoom = user.room || "General";
+  let currentIsDm = false;
+  let currentPeer = null; // { uid, name, photoURL, avatarData } when in a DM
+
   // ===== Chat history =====
   let oldestLoadedTimestamp = null;
   let hasMoreHistory = false;
   let loadingOlder = false;
+
+  function clearMessagesView() {
+    // remove everything except the loadOlder sentinel
+    Array.from(messagesEl.children).forEach((child) => {
+      if (child !== loadOlderEl) child.remove();
+    });
+    myMessages.clear();
+    oldestLoadedTimestamp = null;
+    hasMoreHistory = false;
+    if (loadOlderEl) loadOlderEl.style.display = "none";
+    if (typingEl) typingEl.textContent = "";
+    clearReply();
+  }
+
+  socket.on("room-joined", ({ room, isDm, peer }) => {
+    currentRoom = room;
+    currentIsDm = !!isDm;
+    currentPeer = peer || null;
+    user.room = room;
+    localStorage.setItem("chatUser", JSON.stringify(user));
+
+    clearMessagesView();
+    renderHeader();
+    highlightActiveRoom();
+    closeAnyModal();
+  });
+
+  socket.on("join-error", ({ message }) => {
+    alert(message || "Couldn't join that room.");
+  });
+
+  socket.on("room-error", ({ message }) => {
+    alert(message || "Something went wrong with that room.");
+  });
+
+  function renderHeader() {
+    if (!roomTitleEl) return;
+    if (currentIsDm && currentPeer) {
+      roomTitleEl.parentElement.classList.add("dm-header");
+      roomTitleEl.textContent = currentPeer.name || "Direct Message";
+      roomTitleEl.dataset.dm = "true";
+      if (userRoomEl) userRoomEl.textContent = "Direct message";
+    } else {
+      roomTitleEl.parentElement.classList.remove("dm-header");
+      roomTitleEl.textContent = currentRoom || "Chatroom";
+      roomTitleEl.dataset.dm = "false";
+      if (userRoomEl) userRoomEl.textContent = "Room: " + currentRoom;
+    }
+  }
 
   socket.on("chat-history", ({ messages, hasMore }) => {
     messages.forEach((m) => {
@@ -155,10 +209,13 @@ document.addEventListener("DOMContentLoaded", () => {
   // join room on connect
   socket.emit("join-room", {
   name: user.name,
-  room: user.room,
+  room: currentRoom,
   uid: user.uid || user.name, // fallback if guest
   photoURL: user.photoURL || null
 });
+
+  socket.emit("get-rooms");
+  socket.emit("get-dm-list");
 
   // ===== Background picker =====
   const messagesContainer = document.querySelector(".messages");
@@ -239,6 +296,213 @@ document.addEventListener("DOMContentLoaded", () => {
     renderPinnedBar();
     const el = document.querySelector(`.message[data-id="${id}"]`);
     if (el) el.classList.remove("is-pinned");
+  });
+
+  // ===== Rooms =====
+  const roomListEl = document.getElementById("roomList");
+  const createRoomBtn = document.getElementById("createRoomBtn");
+  let knownRooms = [];
+
+  function renderRoomsList(rooms) {
+    knownRooms = rooms;
+    roomListEl.innerHTML = "";
+    rooms.forEach((r) => {
+      const li = document.createElement("li");
+      li.className = "room-row";
+      li.dataset.room = r.name;
+      if (!currentIsDm && currentRoom === r.name) li.classList.add("active");
+
+      const hash = document.createElement("span");
+      hash.className = "room-hash";
+      hash.textContent = "#";
+      li.appendChild(hash);
+
+      const label = document.createElement("span");
+      label.textContent = r.displayName;
+      li.appendChild(label);
+
+      if (r.isPrivate) {
+        const lock = document.createElement("span");
+        lock.className = "room-lock";
+        lock.textContent = "🔒";
+        li.appendChild(lock);
+      } else if (r.memberCount) {
+        const count = document.createElement("span");
+        count.className = "room-count";
+        count.textContent = r.memberCount;
+        li.appendChild(count);
+      }
+
+      li.addEventListener("click", () => attemptJoinRoom(r));
+      roomListEl.appendChild(li);
+    });
+  }
+
+  function attemptJoinRoom(r, password) {
+    if (r.isPrivate && !password) {
+      openPasswordModal(r);
+      return;
+    }
+    socket.emit("switch-room", { room: r.name, password });
+  }
+
+  function highlightActiveRoom() {
+    document.querySelectorAll(".room-row").forEach((li) => {
+      li.classList.toggle("active", !currentIsDm && li.dataset.room === currentRoom);
+    });
+    document.querySelectorAll(".dm-row").forEach((li) => {
+      li.classList.toggle("active", currentIsDm && li.dataset.room === currentRoom);
+    });
+  }
+
+  socket.on("rooms-list", renderRoomsList);
+  socket.on("rooms-updated", renderRoomsList);
+
+  function openPasswordModal(room) {
+    closeAnyModal();
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.id = "activeModal";
+    const modal = document.createElement("div");
+    modal.className = "modal-card";
+    modal.innerHTML = `
+      <h3 class="modal-title">🔒 ${room.displayName}</h3>
+      <label class="input-label">This room is private. Enter the password:</label>
+      <input id="roomPasswordInput" type="password" />
+      <div class="modal-actions">
+        <button class="btn small-btn" id="pwCancelBtn">Cancel</button>
+        <button class="btn login_primary-btn modal-save-btn" id="pwJoinBtn">Join room</button>
+      </div>
+    `;
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    overlay.addEventListener("click", (e) => e.target === overlay && closeAnyModal());
+    modal.querySelector("#pwCancelBtn").addEventListener("click", closeAnyModal);
+    modal.querySelector("#pwJoinBtn").addEventListener("click", () => {
+      const pw = modal.querySelector("#roomPasswordInput").value;
+      attemptJoinRoom(room, pw);
+    });
+  }
+
+  function openCreateRoomModal() {
+    closeAnyModal();
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.id = "activeModal";
+    const modal = document.createElement("div");
+    modal.className = "modal-card";
+    modal.innerHTML = `
+      <h3 class="modal-title">Create a room</h3>
+      <label class="input-label">Room name</label>
+      <input id="newRoomName" type="text" maxlength="30" placeholder="e.g. Design Team" />
+      <label class="input-label">Description (optional)</label>
+      <input id="newRoomDesc" type="text" maxlength="140" placeholder="What's this room for?" />
+      <label class="input-label" style="display:flex;align-items:center;gap:8px;margin-top:16px;">
+        <input type="checkbox" id="newRoomPrivate" style="width:auto;" /> Make this room private
+      </label>
+      <div id="newRoomPwWrap" style="display:none;">
+        <label class="input-label">Room password</label>
+        <input id="newRoomPassword" type="password" placeholder="Choose a password" />
+      </div>
+      <div class="modal-actions">
+        <button class="btn small-btn" id="crCancelBtn">Cancel</button>
+        <button class="btn login_primary-btn modal-save-btn" id="crCreateBtn">Create room</button>
+      </div>
+    `;
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    overlay.addEventListener("click", (e) => e.target === overlay && closeAnyModal());
+
+    const privateCheckbox = modal.querySelector("#newRoomPrivate");
+    const pwWrap = modal.querySelector("#newRoomPwWrap");
+    privateCheckbox.addEventListener("change", () => {
+      pwWrap.style.display = privateCheckbox.checked ? "block" : "none";
+    });
+
+    modal.querySelector("#crCancelBtn").addEventListener("click", closeAnyModal);
+    modal.querySelector("#crCreateBtn").addEventListener("click", () => {
+      const name = modal.querySelector("#newRoomName").value.trim();
+      const description = modal.querySelector("#newRoomDesc").value.trim();
+      const isPrivate = privateCheckbox.checked;
+      const password = modal.querySelector("#newRoomPassword").value;
+      if (!name) {
+        alert("Please enter a room name.");
+        return;
+      }
+      socket.emit("create-room", { name, description, isPrivate, password });
+    });
+  }
+
+  if (createRoomBtn) createRoomBtn.addEventListener("click", openCreateRoomModal);
+
+  socket.on("room-created", ({ name }) => {
+    attemptJoinRoom({ name, displayName: name, isPrivate: false });
+  });
+
+  // ===== Direct messages =====
+  const dmListEl = document.getElementById("dmList");
+  const unreadDmRooms = new Set();
+
+  function renderDmList(list) {
+    dmListEl.innerHTML = "";
+    list.forEach((d) => {
+      const li = document.createElement("li");
+      li.className = "dm-row";
+      li.dataset.room = d.room;
+      if (currentIsDm && currentRoom === d.room) li.classList.add("active");
+      if (unreadDmRooms.has(d.room)) li.classList.add("unread");
+
+      const av = document.createElement("div");
+      av.className = "dm-row-avatar";
+      applyAvatar(av, d.peerName, d.peerAvatarData);
+      const dot = document.createElement("span");
+      dot.className = `status-dot status-${d.status || "offline"}`;
+      av.appendChild(dot);
+      li.appendChild(av);
+
+      const meta = document.createElement("div");
+      meta.className = "dm-row-meta";
+      const nameEl = document.createElement("div");
+      nameEl.className = "dm-row-name";
+      nameEl.textContent = d.peerName;
+      meta.appendChild(nameEl);
+      const previewEl = document.createElement("div");
+      previewEl.className = "dm-row-preview";
+      previewEl.textContent = d.lastText || "";
+      meta.appendChild(previewEl);
+      li.appendChild(meta);
+
+      if (unreadDmRooms.has(d.room)) {
+        const dot2 = document.createElement("span");
+        dot2.className = "dm-unread-dot";
+        li.appendChild(dot2);
+      }
+
+      li.addEventListener("click", () => {
+        unreadDmRooms.delete(d.room);
+        openDm({ uid: d.peerUid, name: d.peerName, avatarData: d.peerAvatarData });
+      });
+
+      dmListEl.appendChild(li);
+    });
+  }
+
+  socket.on("dm-list", renderDmList);
+
+  function openDm(target) {
+    socket.emit("open-dm", {
+      targetUid: target.uid,
+      targetName: target.name,
+      targetPhoto: target.photoURL || null,
+      targetAvatarData: target.avatarData || null
+    });
+  }
+
+  socket.on("dm-incoming", ({ room }) => {
+    if (!(currentIsDm && currentRoom === room)) {
+      unreadDmRooms.add(room);
+    }
+    socket.emit("get-dm-list");
   });
 
   // ===== Presence: status selector =====
@@ -425,6 +689,21 @@ document.addEventListener("DOMContentLoaded", () => {
       bioEl.textContent = profile.bio;
       modal.appendChild(bioEl);
     }
+
+    const messageBtn = document.createElement("button");
+    messageBtn.className = "btn login_primary-btn modal-save-btn";
+    messageBtn.style.marginTop = "16px";
+    messageBtn.textContent = "Message";
+    messageBtn.addEventListener("click", () => {
+      closeAnyModal();
+      openDm({
+        uid: profile.uid,
+        name: profile.name,
+        photoURL: profile.photoURL,
+        avatarData: profile.avatarData
+      });
+    });
+    modal.appendChild(messageBtn);
 
     const closeBtn = document.createElement("button");
     closeBtn.className = "btn small-btn modal-close-btn";
@@ -755,6 +1034,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         addChatMessage({ ...payload, user: currentUserName }, true);
         socket.emit("chat-message", payload);
+        if (currentIsDm) socket.emit("get-dm-list");
 
         fileInput.value = "";
         inputEl.value = "";
@@ -767,6 +1047,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // ---- TEXT MESSAGE ----
     addChatMessage({ ...basePayload, user: currentUserName }, true);
     socket.emit("chat-message", basePayload);
+    if (currentIsDm) socket.emit("get-dm-list");
 
     inputEl.value = "";
     clearReply();

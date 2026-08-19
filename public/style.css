@@ -368,6 +368,7 @@ select {
   display: flex;
   flex-direction: column;
   padding: 18px 14px;
+  overflow-y: auto;
 }
 
 .sidebar-header {
@@ -536,12 +537,12 @@ select {
   list-style: none;
   padding: 0;
   margin: 0;
-  flex: 1;
+  max-height: 160px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  min-height: 40px;
+  min-height: 24px;
 }
 
 .user-list li {
@@ -610,6 +611,156 @@ select {
   padding: 6px 10px;
 }
 
+/* Room list */
+.room-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 150px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.room-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--text-inverse-dim);
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+.room-row:hover {
+  background: var(--ink-700);
+  color: var(--text-inverse);
+}
+.room-row.active {
+  background: var(--ink-700);
+  color: var(--text-inverse);
+  font-weight: 600;
+}
+.room-row .room-hash {
+  opacity: 0.6;
+  font-weight: 600;
+}
+.room-row .room-lock {
+  margin-left: auto;
+  font-size: 0.7rem;
+  opacity: 0.6;
+}
+.room-row .room-count {
+  margin-left: auto;
+  font-size: 0.68rem;
+  opacity: 0.55;
+}
+.room-row.active .room-count {
+  margin-left: 6px;
+}
+
+.create-room-btn {
+  width: 100%;
+  margin: 6px 0 14px;
+  background: var(--ink-800);
+  border: 1px dashed var(--ink-border);
+  color: var(--text-inverse-dim);
+}
+.create-room-btn:hover {
+  background: var(--ink-700);
+  color: var(--text-inverse);
+}
+
+/* DM list */
+.dm-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 14px;
+  max-height: 170px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.dm-list:empty::after {
+  content: "No conversations yet";
+  color: var(--text-inverse-dim);
+  font-size: 0.78rem;
+  padding: 4px 8px;
+  display: block;
+}
+.dm-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 8px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: background var(--dur-fast);
+}
+.dm-row:hover,
+.dm-row.active {
+  background: var(--ink-700);
+}
+.dm-row-avatar {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #06201d;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.dm-row-avatar .status-dot {
+  position: absolute;
+  bottom: -1px;
+  right: -1px;
+  border: 2px solid var(--ink-900);
+  width: 9px;
+  height: 9px;
+}
+.dm-row-meta {
+  min-width: 0;
+  flex: 1;
+}
+.dm-row-name {
+  font-size: 0.84rem;
+  color: var(--text-inverse);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dm-row-preview {
+  font-size: 0.72rem;
+  color: var(--text-inverse-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 150px;
+}
+.dm-row.unread .dm-row-name,
+.dm-row.unread .dm-row-preview {
+  color: var(--text-inverse);
+  font-weight: 600;
+}
+.dm-unread-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
+/* DM-mode chat header */
+.header.dm-header {
+  gap: 2px;
+}
+
 /* Background picker */
 .bg-picker {
   display: flex;
@@ -671,6 +822,11 @@ select {
   color: var(--text-tertiary);
   font-weight: 600;
   margin-right: 2px;
+}
+
+.room-title[data-dm="true"]::before {
+  content: "";
+  margin-right: 0;
 }
 
 .header .small-btn {
