@@ -435,6 +435,45 @@ document.addEventListener("DOMContentLoaded", () => {
 
   if (createRoomBtn) createRoomBtn.addEventListener("click", openCreateRoomModal);
 
+  // ===== Join a room by name (needed for private rooms, which aren't
+  // broadcast to everyone the way public rooms are) =====
+  const joinRoomBtn = document.getElementById("joinRoomBtn");
+
+  function openJoinRoomModal() {
+    closeAnyModal();
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.id = "activeModal";
+    const modal = document.createElement("div");
+    modal.className = "modal-card";
+    modal.innerHTML = `
+      <h3 class="modal-title">Join a room</h3>
+      <label class="input-label">Room name</label>
+      <input id="joinRoomName" type="text" maxlength="30" placeholder="e.g. design-team" />
+      <label class="input-label">Password (if it's private)</label>
+      <input id="joinRoomPassword" type="password" placeholder="Leave blank for public rooms" />
+      <div class="modal-actions">
+        <button class="btn small-btn" id="jrCancelBtn">Cancel</button>
+        <button class="btn login_primary-btn modal-save-btn" id="jrJoinBtn">Join</button>
+      </div>
+    `;
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    overlay.addEventListener("click", (e) => e.target === overlay && closeAnyModal());
+    modal.querySelector("#jrCancelBtn").addEventListener("click", closeAnyModal);
+    modal.querySelector("#jrJoinBtn").addEventListener("click", () => {
+      const name = modal.querySelector("#joinRoomName").value.trim();
+      const password = modal.querySelector("#joinRoomPassword").value;
+      if (!name) {
+        alert("Please enter a room name.");
+        return;
+      }
+      socket.emit("switch-room", { room: name, password: password || undefined });
+    });
+  }
+
+  if (joinRoomBtn) joinRoomBtn.addEventListener("click", openJoinRoomModal);
+
   socket.on("room-created", ({ name }) => {
     attemptJoinRoom({ name, displayName: name, isPrivate: false });
   });
