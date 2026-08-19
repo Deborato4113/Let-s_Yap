@@ -309,7 +309,7 @@ io.on("connection", (socket) => {
   // -------------------------
   // ROOMS: LIST / CREATE
   // -------------------------
-  socket.on("get-rooms", async () => {
+  async function buildRoomListFor(uid) {
     const rooms = await Room.find({ isPrivate: { $ne: true } }).sort({ createdAt: 1 });
     const list = rooms.map((r) => ({
       name: r.name,
@@ -318,10 +318,9 @@ io.on("connection", (socket) => {
       isPrivate: r.isPrivate,
       memberCount: io.sockets.adapter.rooms.get(r.name)?.size || 0
     }));
-    // also include private rooms the requester created, so they can find them again
-    const u = users.get(socket.id);
-    if (u) {
-      const myPrivate = await Room.find({ isPrivate: true, createdBy: u.uid });
+
+    if (uid) {
+      const myPrivate = await Room.find({ isPrivate: true, createdBy: uid });
       myPrivate.forEach((r) => {
         list.push({
           name: r.name,
@@ -332,6 +331,21 @@ io.on("connection", (socket) => {
         });
       });
     }
+    return list;
+  }
+
+  // broadcast everyone's personalized room list (public rooms + each
+  // person's own private rooms) — used whenever the shared room set changes
+  async function broadcastRoomLists() {
+    for (const [sockId, u] of users.entries()) {
+      const list = await buildRoomListFor(u.uid);
+      io.to(sockId).emit("rooms-updated", list);
+    }
+  }
+
+  socket.on("get-rooms", async () => {
+    const u = users.get(socket.id);
+    const list = await buildRoomListFor(u ? u.uid : null);
     socket.emit("rooms-list", list);
   });
 
@@ -364,15 +378,7 @@ io.on("connection", (socket) => {
       createdBy: u.uid
     });
 
-    const rooms = await Room.find({ isPrivate: { $ne: true } }).sort({ createdAt: 1 });
-    const list = rooms.map((r) => ({
-      name: r.name,
-      displayName: r.displayName,
-      description: r.description,
-      isPrivate: r.isPrivate,
-      memberCount: io.sockets.adapter.rooms.get(r.name)?.size || 0
-    }));
-    io.emit("rooms-updated", list);
+    await broadcastRoomLists();
 
     socket.emit("room-created", { name: key });
   });
